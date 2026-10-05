@@ -1886,4 +1886,1041 @@ RunService.PreRender:Connect(function()
         AC_HitboxPart:Destroy()
         AC_HitboxPart = nil
     end
+end)--[[ 𝙼𝙰𝙽𝙰𝚁𝙲.𝙶𝚉𝚈 | ᴘᴀʀᴛᴇ 6/9 — ᴀᴜᴛᴏ ᴅʀɪᴠᴇ ᴘʀᴏ + ᴀᴜᴛᴏ ᴄᴀᴛᴄʜ ɪɴᴛᴇʟ + ᴀɪᴍʙᴏᴛ ]]
+
+DriveTab = Window:Tab({ Title = "ᴀᴜᴛᴏ ᴅʀɪᴠᴇ", Icon = "car" })
+
+-- ============================================================
+-- BOTÕES GK
+-- ============================================================
+GKBotoes = {}
+
+function EscanearBotoesGK()
+    GKBotoes = {}
+    pcall(function()
+        for _, v in ipairs(PlayerGui:GetDescendants()) do
+            if v:IsA("TextButton") or v:IsA("ImageButton") then
+                local nome = v.Name
+                local texto = ""
+                pcall(function() texto = v.Text end)
+                if nome:find("GK") or nome:find("C2")
+                or texto:find("Dive") or texto:find("Catch")
+                or texto:find("High") or texto:find("Low")
+                or texto:find("Reflex") or texto:find("Forward")
+                or texto:find("Front") or texto:find("Rush") then
+                    table.insert(GKBotoes, {Button = v, Nome = nome, Texto = texto})
+                end
+            end
+        end
+    end)
+end
+EscanearBotoesGK()
+LocalPlayer.CharacterAdded:Connect(function() task.wait(2); EscanearBotoesGK() end)
+
+function EncontrarBotaoPorTexto(texto)
+    for _, info in ipairs(GKBotoes) do
+        if info.Texto and info.Texto:lower() == texto:lower() then return info.Button end
+    end
+    for _, info in ipairs(GKBotoes) do
+        if info.Texto and info.Texto:lower():find(texto:lower(), 1, true) then return info.Button end
+    end
+    return nil
+end
+function ClicarBotao(botao)
+    if not botao then return end
+    pcall(function() firesignal(botao.Activated) end)
+    pcall(function() firesignal(botao.MouseButton1Click) end)
+    pcall(function() firesignal(botao.MouseButton1Down) end)
+    pcall(function() firesignal(botao.MouseButton1Up) end)
+    pcall(function() firesignal(botao.TouchTap) end)
+end
+function Pular()
+    pcall(function() Humanoid.Jump = true end)
+    pcall(function() Humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
+end
+
+-- ============================================================
+-- DASH RÁPIDO
+-- ============================================================
+DashEnabled = true
+DashSpeed = 65
+DashDuration = 0.12
+DashVelocity = nil
+
+function FastDash(targetPos)
+    if not DashEnabled then return end
+    if not RootPart or not RootPart.Parent then return end
+    pcall(function()
+        if DashVelocity then DashVelocity:Destroy() end
+        local direction = targetPos - RootPart.Position
+        if direction.Magnitude < 0.5 then return end
+        direction = direction.Unit
+        local bv = Instance.new("BodyVelocity")
+        bv.Name = "ManicAutoDash"
+        bv.MaxForce = Vector3.new(math.huge, 0, math.huge)
+        bv.Velocity = Vector3.new(direction.X, 0, direction.Z) * DashSpeed
+        bv.P = 5000
+        bv.Parent = RootPart
+        DashVelocity = bv
+        task.delay(DashDuration, function()
+            if bv and bv.Parent then bv:Destroy() end
+            if DashVelocity == bv then DashVelocity = nil end
+        end)
+    end)
+end
+
+-- ============================================================
+-- PREDIÇÃO E ANÁLISE
+-- ============================================================
+function PredizerTrajetoria(ball, tempoMax)
+    if not ball or not ball.Parent then return nil end
+    local posInicial = ball.Position
+    local velInicial = ball.AssemblyLinearVelocity
+    if velInicial.Magnitude < 1 then
+        return {posFinal = posInicial, velFinal = velInicial, tempo = 0, alturaMax = posInicial.Y}
+    end
+    local gravity = Workspace.Gravity
+    local pos, vel = posInicial, velInicial
+    local dt, tempo = 0.05, 0
+    local alturaMax = pos.Y
+    while tempo < tempoMax do
+        vel = Vector3.new(vel.X, vel.Y - gravity * dt, vel.Z)
+        pos = pos + vel * dt
+        tempo = tempo + dt
+        if pos.Y > alturaMax then alturaMax = pos.Y end
+        if pos.Y < -100 then break end
+    end
+    return {posFinal = pos, velFinal = vel, tempo = tempo, alturaMax = alturaMax}
+end
+
+function AnalisarBolaNewton()
+    local ball = CurrentFollowBall or FindClosestBall()
+    if not ball or not RootPart then return nil end
+    local vel = ball.AssemblyLinearVelocity
+    local dist = (ball.Position - RootPart.Position).Magnitude
+    local tempo = 0
+    if vel.Magnitude > 3 then
+        tempo = dist / vel.Magnitude
+        tempo = math.clamp(tempo, 0, 0.6)
+    end
+    local posFutura = ball.Position + (vel * tempo)
+    local camLook = Camera.CFrame.LookVector
+    local camRight = Camera.CFrame.RightVector
+    local frenteH = Vector3.new(camLook.X, 0, camLook.Z)
+    if frenteH.Magnitude < 0.1 then frenteH = Vector3.new(0, 0, -1) end
+    frenteH = frenteH.Unit
+    local direitaH = Vector3.new(camRight.X, 0, camRight.Z)
+    if direitaH.Magnitude < 0.1 then direitaH = Vector3.new(1, 0, 0) end
+    direitaH = direitaH.Unit
+    local delta = posFutura - RootPart.Position
+    local deltaH = Vector3.new(delta.X, 0, delta.Z)
+    local lado = deltaH:Dot(direitaH)
+    local altura = posFutura.Y - RootPart.Position.Y
+    local frenteDist = deltaH:Dot(frenteH)
+
+    local dirParaPlayer = RootPart.Position - ball.Position
+    local dirH = Vector3.new(dirParaPlayer.X, 0, dirParaPlayer.Z)
+    local velH = Vector3.new(vel.X, 0, vel.Z)
+    local vindo = false
+    if dirH.Magnitude > 0.1 and velH.Magnitude > 0.1 then
+        vindo = velH.Unit:Dot(dirH.Unit) > 0.15
+    end
+
+    return {
+        ball = ball, vel = vel, dist = dist,
+        posFutura = posFutura,
+        lado = lado,
+        altura = altura,
+        frente = frenteDist,
+        vindoParaPlayer = vindo,
+    }
+end
+
+-- ============================================================
+-- AIMBOT (redireciona bola pro gol)
+-- ============================================================
+AimbotBlueEnabled = false
+AimbotGreenEnabled = false
+AimbotForce = 0.25
+
+function doAimbot(direcaoGol)
+    local ball = GetValidBall()
+    if not ball or not ball.Parent then return end
+    if not RootPart or not RootPart.Parent then return end
+    local vel = ball.AssemblyLinearVelocity
+    if vel.Magnitude < 15 then return end
+    local golPos = ScanGoalPosition(direcaoGol)
+    if not golPos then return end
+    local dirGol = (Vector3.new(golPos.X - ball.Position.X, 0, golPos.Z - ball.Position.Z)).Unit
+    local velH = Vector3.new(vel.X, 0, vel.Z)
+    if velH.Magnitude < 0.1 then return end
+    local velAlvo = velH.Unit:Lerp(dirGol, AimbotForce)
+    ball.AssemblyLinearVelocity = Vector3.new(velAlvo.X * velH.Magnitude, vel.Y, velAlvo.Z * velH.Magnitude)
+    ball.AssemblyAngularVelocity = Vector3.zero
+end
+
+RunService.PreRender:Connect(function()
+    if AimbotBlueEnabled then doAimbot("Blue") end
+    if AimbotGreenEnabled then doAimbot("Green") end
+end)
+
+DriveTab:Section({ Title = "ᴀɪᴍʙᴏᴛ" })
+DriveTab:Toggle({Title = "ᴀɪᴍʙᴏᴛ ʙʟᴜᴇ", Desc = "ʀᴇᴅɪʀᴇᴄɪᴏɴᴀ ʙᴏʟᴀ ᴘʀᴏ ɢᴏʟ ᴀᴢᴜʟ", Value = false, Callback = function(v) AimbotBlueEnabled = v end})
+DriveTab:Toggle({Title = "ᴀɪᴍʙᴏᴛ ɢʀᴇᴇɴ", Desc = "ʀᴇᴅɪʀᴇᴄɪᴏɴᴀ ʙᴏʟᴀ ᴘʀᴏ ɢᴏʟ ᴠᴇʀᴅᴇ", Value = false, Callback = function(v) AimbotGreenEnabled = v end})
+DriveTab:Slider({Title = "ꜰᴏʀçᴀ ᴅᴏ ᴀɪᴍʙᴏᴛ", Value = {Min = 5, Max = 100, Default = 25, Suffix = " x0.01"}, Callback = function(v) AimbotForce = v / 100 end})
+
+-- ============================================================
+-- AUTODIVE
+-- ============================================================
+AutoDiveEnabled = false
+AutoDiveRange = 15
+AutoDiveCooldown = 0.8
+AutoDiveLast = 0
+AutoDiveMode = "Auto"
+AutoDiveBloquearSeIntel = true
+AutoDiveHeightThreshold = 3.5
+
+GK_BUTTON_TEXTS = {
+    ["Esquerda Alto"] = "High Dive Left",
+    ["Direita Alto"]  = "High Dive Right",
+    ["Esquerda Baixo"] = "Dive Left",
+    ["Direita Baixo"] = "Dive Right",
+    ["Agarrar Alto"]  = "High Catch",
+    ["Agarrar Baixo"] = "Low Catch",
+    ["Reflexo"]       = "Reflex",
+    ["Frente"]        = "Front Dive",
+    ["Enfrentar"]     = "Rush",
+}
+
+function ExecutarAutoDive()
+    local info = AnalisarBolaNewton()
+    if not info then return end
+    local lado = info.lado
+    local altura = info.altura
+    local textoAlvo
+    if AutoDiveMode ~= "Auto" then
+        textoAlvo = GK_BUTTON_TEXTS[AutoDiveMode]
+    else
+        if altura > AutoDiveHeightThreshold then
+            textoAlvo = lado > 0 and "High Dive Right" or "High Dive Left"
+        else
+            textoAlvo = lado > 0 and "Dive Right" or "Dive Left"
+        end
+    end
+    if not textoAlvo then return end
+    local botao = EncontrarBotaoPorTexto(textoAlvo)
+    if botao then ClicarBotao(botao) end
+end
+
+DriveTab:Section({ Title = "ᴀᴜᴛᴏ ᴅɪᴠᴇ" })
+DriveTab:Toggle({Title = "ᴀᴛɪᴠᴀʀ ᴀᴜᴛᴏ ᴅɪᴠᴇ", Value = false, Callback = function(v) AutoDiveEnabled = v end})
+DriveTab:Dropdown({
+    Title = "ᴍᴏᴅᴏ ᴅᴏ ᴅɪᴠᴇ",
+    Values = {"Auto", "Esquerda Alto", "Direita Alto", "Esquerda Baixo", "Direita Baixo", "Agarrar Alto", "Agarrar Baixo", "Reflexo", "Frente", "Enfrentar"},
+    Value = "Auto",
+    Callback = function(v) AutoDiveMode = v end,
+})
+DriveTab:Slider({Title = "ᴀʟᴄᴀɴᴄᴇ", Value = {Min = 5, Max = 30, Default = 15}, Callback = function(v) AutoDiveRange = v end})
+DriveTab:Slider({Title = "ᴄᴏᴏʟᴅᴏᴡɴ", Value = {Min = 1, Max = 50, Default = 8, Suffix = " x0.1s"}, Callback = function(v) AutoDiveCooldown = v / 10 end})
+DriveTab:Slider({Title = "ᴀʟᴛᴜʀᴀ ᴘᴀʀᴀ ᴅɪᴠᴇ ᴀʟᴛᴏ", Value = {Min = 1, Max = 10, Default = 35, Suffix = " x0.1"}, Callback = function(v) AutoDiveHeightThreshold = v / 10 end})
+DriveTab:Toggle({Title = "ᴘᴀᴜꜱᴀʀ ᴅɪᴠᴇ ꜱᴇ ɪɴᴛᴇʟ ᴏɴ", Value = true, Callback = function(v) AutoDiveBloquearSeIntel = v end})
+
+-- ============================================================
+-- AUTO CATCH INTEL
+-- ============================================================
+AutoCatchIntelEnabled = false
+AutoCatchIntelRange = 16
+AutoCatchIntelCooldown = 0.35
+AutoCatchIntelLast = 0
+AutoCatchIntelHeight = 3.5
+
+function ExecutarAutoCatchIntel()
+    local info = AnalisarBolaNewton()
+    if not info then return end
+    local lado = info.lado
+    local altura = info.altura
+    local ladoAbs = math.abs(lado)
+    local bolaAlta = altura > AutoCatchIntelHeight
+    local bolaLateral = ladoAbs >= 2.5
+
+    if bolaLateral then
+        if bolaAlta then
+            local textoDive = lado < 0 and "High Dive Left" or "High Dive Right"
+            local botaoDive = EncontrarBotaoPorTexto(textoDive)
+            if botaoDive then ClicarBotao(botaoDive) end
+        else
+            local botao = EncontrarBotaoPorTexto("Low Catch")
+            if botao then ClicarBotao(botao) end
+        end
+    else
+        if bolaAlta then
+            task.spawn(Pular)
+            task.wait(0.05)
+            local botao = EncontrarBotaoPorTexto("High Catch")
+            if botao then ClicarBotao(botao) end
+        else
+            local botao = EncontrarBotaoPorTexto("Low Catch")
+            if botao then ClicarBotao(botao) end
+        end
+    end
+end
+
+RunService.Heartbeat:Connect(function()
+    if not AutoCatchIntelEnabled then return end
+    if not RootPart or not RootPart.Parent then return end
+    if tick() - AutoCatchIntelLast < AutoCatchIntelCooldown then return end
+    local info = AnalisarBolaNewton()
+    if not info then return end
+    if info.dist > AutoCatchIntelRange then return end
+    if info.vel.Magnitude < 4 then return end
+    if info.vindoParaPlayer then
+        AutoCatchIntelLast = tick()
+        task.spawn(ExecutarAutoCatchIntel)
+    end
+end)
+
+DriveTab:Section({ Title = "ᴀᴜᴛᴏ ᴄᴀᴛᴄʜ ɪɴᴛᴇʟ" })
+DriveTab:Toggle({Title = "ᴀᴛɪᴠᴀʀ ᴀᴜᴛᴏ ᴄᴀᴛᴄʜ ɪɴᴛᴇʟ", Desc = "ᴇꜱᴄᴏʟʜᴇ ʙᴏᴛãᴏ ᴘᴏʀ ʟᴀᴅᴏ + ᴀʟᴛᴜʀᴀ", Value = false, Callback = function(v) AutoCatchIntelEnabled = v end})
+DriveTab:Slider({Title = "ᴀʟᴄᴀɴᴄᴇ", Value = {Min = 5, Max = 35, Default = 16}, Callback = function(v) AutoCatchIntelRange = v end})
+DriveTab:Slider({Title = "ᴀʟᴛᴜʀᴀ ᴍíɴɪᴍᴀ", Value = {Min = 10, Max = 100, Default = 35, Suffix = " x0.1"}, Callback = function(v) AutoCatchIntelHeight = v / 10 end})
+DriveTab:Slider({Title = "ᴄᴏᴏʟᴅᴏᴡɴ", Value = {Min = 1, Max = 20, Default = 35, Suffix = " x0.01s"}, Callback = function(v) AutoCatchIntelCooldown = v / 100 end})
+
+-- ============================================================
+-- LOOP PRINCIPAL DO AUTODIVE
+-- ============================================================
+RunService.Heartbeat:Connect(function()
+    if not AutoDiveEnabled then return end
+    if AutoDiveBloquearSeIntel and AutoCatchIntelEnabled then return end
+    if not RootPart or not RootPart.Parent or not Humanoid then return end
+    if tick() - AutoDiveLast < AutoDiveCooldown then return end
+    local info = AnalisarBolaNewton()
+    if not info then return end
+    if info.dist > AutoDiveRange then return end
+    if info.vel.Magnitude < 5 then return end
+    if info.vindoParaPlayer then
+        AutoDiveLast = tick()
+        task.spawn(ExecutarAutoDive)
+    end
+end)
+
+-- ============================================================
+-- MOVER PARA INTERCEPTAR
+-- ============================================================
+AutoMoveIntercept = true
+AutoMoveInterceptDash = true
+
+DriveTab:Section({ Title = "ᴍᴏᴠɪᴍᴇɴᴛᴏ ᴘᴀʀᴀ ɪɴᴛᴇʀᴄᴇᴘᴛᴀʀ" })
+DriveTab:Toggle({Title = "ᴍᴏᴠᴇʀ ᴘᴀʀᴀ ɪɴᴛᴇʀᴄᴇᴘᴛᴀʀ", Value = true, Callback = function(v) AutoMoveIntercept = v end})
+DriveTab:Toggle({Title = "ᴜꜱᴀʀ ᴅᴀꜱʜ ʀáᴘɪᴅᴏ", Value = true, Callback = function(v) AutoMoveInterceptDash = v end})
+DriveTab:Slider({Title = "ᴠᴇʟᴏᴄɪᴅᴀᴅᴇ ᴅᴏ ᴅᴀꜱʜ", Value = {Min = 20, Max = 150, Default = 65}, Callback = function(v) DashSpeed = v end})
+
+RunService.Heartbeat:Connect(function()
+    if not AutoMoveIntercept then return end
+    if not RootPart or not RootPart.Parent or not Humanoid then return end
+    local info = AnalisarBolaNewton()
+    if not info then return end
+    if not info.vindoParaPlayer then return end
+    if info.vel.Magnitude < 3 then return end
+    local traj = PredizerTrajetoria(info.ball, 2.0)
+    if not traj then return end
+    local destino = traj.posFinal
+    local flat = destino - RootPart.Position
+    local flatH = Vector3.new(flat.X, 0, flat.Z)
+    if flatH.Magnitude > 1.5 and flatH.Magnitude < 50 then
+        if AutoMoveInterceptDash and flatH.Magnitude > 8 then
+            FastDash(destino)
+        else
+            Humanoid:Move(flatH.Unit, false)
+        end
+    end
+end)
+
+DriveTab:Button({Title = "ʀᴇᴇꜱᴄᴀɴᴇᴀʀ ʙᴏᴛõᴇꜱ ɢᴋ", Desc = "ᴜꜱᴇ ᴅᴇᴘᴏɪꜱ ᴅᴇ ᴇɴᴛʀᴀʀ ᴄᴏᴍᴏ ɢᴏʟᴇɪʀᴏ", Callback = function()
+    EscanearBotoesGK()
+    pcall(function() WindUI:Notify({Title = "ᴀᴜᴛᴏ ᴅʀɪᴠᴇ", Content = #GKBotoes .. " ʙᴏᴛõᴇꜱ ᴇɴᴄᴏɴᴛʀᴀᴅᴏꜱ", Duration = 3}) end)
+end})-- =============================================
+-- ABA: BOOM BOX (Músicas + Database)
+-- =============================================
+local BoomTab = Window:Tab({ Title = "Boom Box", Icon = "music" })
+
+local BoomState = {
+	Sound = nil,
+	Database = { Musicas = {}, Ordem = {} },
+	Arquivo = "LuxuryHub_Musicas.json",
+}
+
+-- ============================================
+-- TOCAR MÚSICA
+-- ============================================
+local function TocarMusica(id)
+	pcall(function()
+		if BoomState.Sound then BoomState.Sound:Destroy() end
+		local char = LocalPlayer.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local sound = Instance.new("Sound")
+		sound.SoundId = "rbxassetid://" .. id
+		sound.Volume = 2
+		sound.Parent = hrp or Workspace
+		sound:Play()
+		BoomState.Sound = sound
+	end)
+end
+
+local function PararMusica()
+	if BoomState.Sound then
+		pcall(function()
+			BoomState.Sound:Stop()
+			BoomState.Sound:Destroy()
+		end)
+		BoomState.Sound = nil
+	end
+end
+
+-- ============================================
+-- SERIALIZAÇÃO DA DATABASE
+-- ============================================
+local function SerializarDB()
+	local linhas = {"{"}
+	table.insert(linhas, '  "ordem": [')
+	for i, id in ipairs(BoomState.Database.Ordem) do
+		local virg = i < #BoomState.Database.Ordem and "," or ""
+		table.insert(linhas, '    "' .. id .. '"' .. virg)
+	end
+	table.insert(linhas, "  ],")
+	table.insert(linhas, '  "musicas": {')
+	local ids = {}
+	for id, _ in pairs(BoomState.Database.Musicas) do table.insert(ids, id) end
+	for i, id in ipairs(ids) do
+		local m = BoomState.Database.Musicas[id]
+		local virg = i < #ids and "," or ""
+		local nome = (m.nome or ""):gsub('"', '\\"')
+		local dataAdicao = m.dataAdicao or ""
+		table.insert(linhas, '    "' .. id .. '": {"nome": "' .. nome .. '", "data": "' .. dataAdicao .. '"}' .. virg)
+	end
+	table.insert(linhas, "  }")
+	table.insert(linhas, "}")
+	return table.concat(linhas, "\n")
+end
+
+local function DeserializarDB(texto)
+	local db = { Musicas = {}, Ordem = {} }
+	if not texto or texto == "" then return db end
+	local ordemBloco = texto:match('"ordem"%s*:%s*%[(.-)%]')
+	if ordemBloco then
+		for id in ordemBloco:gmatch('"([^"]+)"') do
+			table.insert(db.Ordem, id)
+		end
+	end
+	local musicasBloco = texto:match('"musicas"%s*:%s*%{(.-)%s*}%s*$')
+	if musicasBloco then
+		for id, corpo in musicasBloco:gmatch('"([^"]+)"%s*:%s*{(.-)}') do
+			local nome = corpo:match('"nome"%s*:%s*"([^"]*)"') or ""
+			local dataAdicao = corpo:match('"data"%s*:%s*"([^"]*)"') or ""
+			db.Musicas[id] = { nome = nome, dataAdicao = dataAdicao }
+		end
+	end
+	return db
+end
+
+local function CarregarDB()
+	pcall(function()
+		if readfile and isfile and isfile(BoomState.Arquivo) then
+			local texto = readfile(BoomState.Arquivo)
+			if texto and texto ~= "" then
+				BoomState.Database = DeserializarDB(texto)
+			end
+		end
+	end)
+end
+
+local function SalvarDB()
+	pcall(function()
+		if writefile then
+			writefile(BoomState.Arquivo, SerializarDB())
+		end
+	end)
+end
+
+CarregarDB()
+
+-- ============================================
+-- CRUD DATABASE
+-- ============================================
+local function DB_Adicionar(id, nome)
+	if not id or id == "" then return false, "ID vazio" end
+	if not nome or nome == "" then return false, "Nome vazio" end
+	id = tostring(id):gsub("%D", "")
+	if id == "" then return false, "ID inválido" end
+	if BoomState.Database.Musicas[id] then
+		return false, "ID já existe (" .. BoomState.Database.Musicas[id].nome .. ")"
+	end
+	BoomState.Database.Musicas[id] = {
+		nome = nome,
+		dataAdicao = os.date("%d/%m/%Y %H:%M"),
+	}
+	table.insert(BoomState.Database.Ordem, id)
+	SalvarDB()
+	return true, "Adicionada"
+end
+
+local function DB_Remover(id)
+	if not BoomState.Database.Musicas[id] then return false, "Não existe" end
+	BoomState.Database.Musicas[id] = nil
+	for i, v in ipairs(BoomState.Database.Ordem) do
+		if v == id then table.remove(BoomState.Database.Ordem, i); break end
+	end
+	SalvarDB()
+	return true, "Removida"
+end
+
+local function DB_EditarNome(id, novoNome)
+	if not BoomState.Database.Musicas[id] then return false, "Não existe" end
+	BoomState.Database.Musicas[id].nome = novoNome
+	SalvarDB()
+	return true, "Editada"
+end
+
+local function DB_Total()
+	return #BoomState.Database.Ordem
+end
+
+local function DB_Listar()
+	local lista = {}
+	for i, id in ipairs(BoomState.Database.Ordem) do
+		local m = BoomState.Database.Musicas[id]
+		if m then
+			table.insert(lista, {indice = i, id = id, nome = m.nome, data = m.dataAdicao})
+		end
+	end
+	return lista
+end
+
+local function DB_Limpar()
+	BoomState.Database = { Musicas = {}, Ordem = {} }
+	SalvarDB()
+end
+
+-- ============================================
+-- UI — MÚSICAS PRONTAS
+-- ============================================
+BoomTab:Section({ Title = "Músicas Prontas", TextSize = 16 })
+
+local musicasProntas = {
+	{Nome = "Meant To Be",       ID = "84321228471359"},
+	{Nome = "Sometimes",         ID = "128715303988843"},
+	{Nome = "Blodlyn Bloodpop",  ID = "96414211708215"},
+}
+
+for _, m in ipairs(musicasProntas) do
+	BoomTab:Button({
+		Title = m.Nome,
+		Icon = "play",
+		Callback = function()
+			TocarMusica(m.ID)
+			Window:Notify({ Title = "Boom Box", Content = "Tocando: " .. m.Nome, Icon = "music", Duration = 2 })
+		end,
+	})
+end
+
+-- ============================================
+-- UI — CUSTOM
+-- ============================================
+BoomTab:Space()
+BoomTab:Section({ Title = "Música Custom", TextSize = 16 })
+
+local customIdInput
+customIdInput = BoomTab:Input({
+	Title = "ID da Música",
+	Placeholder = "rbxassetid apenas números...",
+	InputIcon = "hash",
+	Type = "Input",
+	Callback = function(text)
+		-- salva o valor digitado
+		if text and text ~= "" then
+			customIdInput._value = text
+		end
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Tocar Música",
+	Icon = "play-circle",
+	Callback = function()
+		local id = customIdInput._value
+		if id and id ~= "" then
+			TocarMusica(id)
+			Window:Notify({ Title = "Boom Box", Content = "Tocando ID: " .. id, Icon = "music" })
+		else
+			Window:Notify({ Title = "Erro", Content = "Digite um ID primeiro!", Icon = "x-circle" })
+		end
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Parar Música",
+	Icon = "square",
+	Callback = function()
+		PararMusica()
+		Window:Notify({ Title = "Boom Box", Content = "Música parada", Icon = "square" })
+	end,
+})
+
+-- ============================================
+-- UI — DATABASE
+-- ============================================
+BoomTab:Space()
+BoomTab:Section({ Title = "Database de Músicas", TextSize = 16 })
+
+local novoNomeMusica = ""
+local novoIdMusica = ""
+
+BoomTab:Input({
+	Title = "Nome da Música",
+	Placeholder = "ex: Meant To Be",
+	InputIcon = "type",
+	Type = "Input",
+	Callback = function(t) novoNomeMusica = t or "" end,
+})
+
+BoomTab:Space()
+
+BoomTab:Input({
+	Title = "ID da Música",
+	Placeholder = "ex: 84321228471359",
+	InputIcon = "hash",
+	Type = "Input",
+	Callback = function(t) novoIdMusica = t or "" end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Salvar na Database",
+	Desc = "Adiciona a música ao banco",
+	Icon = "save",
+	Callback = function()
+		local ok, msg = DB_Adicionar(novoIdMusica, novoNomeMusica)
+		if ok then
+			TocarMusica(novoIdMusica)
+			Window:Notify({ Title = "Database", Content = "Adicionada: " .. novoNomeMusica, Icon = "check-circle", Duration = 3 })
+			print("[DB] Adicionada:", novoNomeMusica, "| ID:", novoIdMusica)
+			print("[DB] Total:", DB_Total())
+		else
+			Window:Notify({ Title = "Database", Content = "Erro: " .. msg, Icon = "x-circle", Duration = 3 })
+		end
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Listar Database",
+	Desc = "Mostra todas no console (F9)",
+	Icon = "list",
+	Callback = function()
+		local lista = DB_Listar()
+		print("=== DATABASE DE MÚSICAS ===")
+		print("Total: " .. DB_Total())
+		if #lista == 0 then
+			print("(vazia)")
+		else
+			for _, m in ipairs(lista) do
+				print(string.format("[%d] %s | ID: %s | Adicionada em: %s",
+					m.indice, m.nome, m.id, m.data or "?"))
+			end
+		end
+		Window:Notify({ Title = "Database", Content = DB_Total() .. " músicas", Icon = "list", Duration = 3 })
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Tocar Database Inteira",
+	Desc = "Toca todas em sequência",
+	Icon = "list-music",
+	Callback = function()
+		local lista = DB_Listar()
+		if #lista == 0 then
+			Window:Notify({ Title = "Database", Content = "Vazia", Icon = "x-circle" })
+			return
+		end
+		task.spawn(function()
+			for _, m in ipairs(lista) do
+				TocarMusica(m.id)
+				Window:Notify({ Title = "Tocando", Content = m.nome, Icon = "music", Duration = 2 })
+				local dur = 5
+				pcall(function()
+					if BoomState.Sound then
+						local t = 0
+						while BoomState.Sound.TimeLength == 0 and t < 3 do
+							task.wait(0.1); t = t + 0.1
+						end
+						dur = math.max(BoomState.Sound.TimeLength, 3)
+					end
+				end)
+				task.wait(dur + 0.3)
+			end
+		end)
+	end,
+})
+
+-- ============================================
+-- UI — EDITAR / REMOVER
+-- ============================================
+BoomTab:Space()
+BoomTab:Section({ Title = "Editar / Remover", TextSize = 16 })
+
+local idParaEditar = ""
+local novoNomeEdicao = ""
+
+BoomTab:Input({
+	Title = "ID para Editar",
+	Placeholder = "cole o ID aqui",
+	InputIcon = "edit-3",
+	Type = "Input",
+	Callback = function(t) idParaEditar = (t or ""):gsub("%D", "") end,
+})
+
+BoomTab:Space()
+
+BoomTab:Input({
+	Title = "Novo Nome",
+	Placeholder = "novo nome da música",
+	InputIcon = "type",
+	Type = "Input",
+	Callback = function(t) novoNomeEdicao = t or "" end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Editar Nome",
+	Icon = "edit",
+	Callback = function()
+		if idParaEditar == "" or novoNomeEdicao == "" then
+			Window:Notify({ Title = "Database", Content = "Preencha ID e novo nome", Icon = "x-circle" })
+			return
+		end
+		local ok, msg = DB_EditarNome(idParaEditar, novoNomeEdicao)
+		Window:Notify({ Title = "Database", Content = msg, Icon = "check-circle" })
+		print("[DB]", msg, "| ID:", idParaEditar)
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Remover Música",
+	Icon = "trash",
+	Callback = function()
+		if idParaEditar == "" then
+			Window:Notify({ Title = "Database", Content = "Cole um ID acima", Icon = "x-circle" })
+			return
+		end
+		local ok, msg = DB_Remover(idParaEditar)
+		Window:Notify({ Title = "Database", Content = msg, Icon = "check-circle" })
+		print("[DB]", msg, "| ID:", idParaEditar)
+	end,
+})
+
+-- ============================================
+-- UI — FERRAMENTAS
+-- ============================================
+BoomTab:Space()
+BoomTab:Section({ Title = "Ferramentas", TextSize = 16 })
+
+BoomTab:Button({
+	Title = "Exportar Database",
+	Desc = "Copia o JSON pro clipboard",
+	Icon = "clipboard",
+	Callback = function()
+		local json = SerializarDB()
+		if setclipboard then pcall(setclipboard, json) end
+		print("=== JSON EXPORTADO ===")
+		print(json)
+		Window:Notify({ Title = "Database", Content = "Exportado pro clipboard", Icon = "check-circle" })
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Backup Database",
+	Desc = "Salva um arquivo extra",
+	Icon = "hard-drive",
+	Callback = function()
+		pcall(function()
+			if writefile then
+				local backup = "LuxuryHub_Backup_" .. os.date("%Y%m%d_%H%M%S") .. ".json"
+				writefile(backup, SerializarDB())
+				Window:Notify({ Title = "Database", Content = "Backup: " .. backup, Icon = "check-circle" })
+				print("[DB] Backup:", backup)
+			else
+				Window:Notify({ Title = "Database", Content = "Executor não suporta", Icon = "x-circle" })
+			end
+		end)
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Limpar Toda a Database",
+	Icon = "trash-2",
+	Callback = function()
+		DB_Limpar()
+		Window:Notify({ Title = "Database", Content = "Database limpa", Icon = "trash-2" })
+	end,
+})
+
+print("[LuxuryHub] Boom Box carregado ✔")-- =============================================
+-- ABA: AUTO FOLLOW (Seguir a Bola)
+-- =============================================
+local AutoFollowEnabled = false
+local AutoFollowConn    = nil
+local AutoFollowReach   = 3        -- distância que para da bola
+local AutoFollowMax     = 200      -- alcance máximo
+local AutoFollowKey     = Enum.KeyCode.K
+local AutoFollowKeyName = "K"
+
+local function getFollowBall()
+	return GetValidBall()
+end
+
+local function autoFollowTick()
+	if not AutoFollowEnabled then return end
+	if not RootPart or not RootPart.Parent or not Humanoid then return end
+
+	local ball = getFollowBall()
+	if not ball then return end
+
+	local delta = ball.Position - RootPart.Position
+	local flat  = Vector3.new(delta.X, 0, delta.Z)
+
+	if flat.Magnitude > AutoFollowReach and flat.Magnitude < AutoFollowMax then
+		Humanoid:Move(flat.Unit, false)
+		RootPart.CFrame = CFrame.new(
+			RootPart.Position,
+			Vector3.new(ball.Position.X, RootPart.Position.Y, ball.Position.Z)
+		)
+	else
+		Humanoid:Move(Vector3.zero, false)
+	end
+end
+
+local function StartAutoFollow()
+	if AutoFollowConn then return end
+	AutoFollowConn = RunService.Heartbeat:Connect(autoFollowTick)
+end
+
+local function StopAutoFollow()
+	if AutoFollowConn then
+		AutoFollowConn:Disconnect()
+		AutoFollowConn = nil
+	end
+	if Humanoid then Humanoid:Move(Vector3.zero, false) end
+end
+
+-- Botão mobile flutuante (opcional)
+local followGui, followButton
+local function createFollowButton()
+	if followGui then return end
+	followGui = Instance.new("ScreenGui")
+	followGui.Name = "AutoFollowUI"
+	followGui.ResetOnSpawn = false
+	followGui.Parent = PlayerGui
+
+	followButton = Instance.new("TextButton")
+	followButton.Size = UDim2.new(0, 150, 0, 42)
+	followButton.Position = UDim2.new(0.05, 0, 0.75, 0)
+	followButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+	followButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	followButton.Text = "Follow: OFF"
+	followButton.Font = Enum.Font.GothamBold
+	followButton.TextSize = 15
+	followButton.AutoButtonColor = false
+	followButton.Parent = followGui
+
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, 8)
+	c.Parent = followButton
+
+	-- Draggable
+	local dragging, dragStart, startPos = false, nil, nil
+	followButton.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1
+			or i.UserInputType == Enum.UserInputType.Touch then
+			dragging  = true
+			dragStart = i.Position
+			startPos  = followButton.Position
+		end
+	end)
+	followButton.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1
+			or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+	followButton.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement
+			or i.UserInputType == Enum.UserInputType.Touch) then
+			local d = i.Position - dragStart
+			followButton.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + d.X,
+				startPos.Y.Scale, startPos.Y.Offset + d.Y
+			)
+		end
+	end)
+
+	followButton.MouseButton1Click:Connect(function()
+		AutoFollowEnabled = not AutoFollowEnabled
+		if AutoFollowEnabled then
+			StartAutoFollow()
+			followButton.Text = "Follow: ON"
+			followButton.BackgroundColor3 = Color3.fromRGB(0, 150, 70)
+		else
+			StopAutoFollow()
+			followButton.Text = "Follow: OFF"
+			followButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+		end
+	end)
+end
+
+-- Keybind global
+UserInputService.InputBegan:Connect(function(input, gp)
+	if gp then return end
+	if input.KeyCode == AutoFollowKey then
+		AutoFollowEnabled = not AutoFollowEnabled
+		if AutoFollowEnabled then
+			StartAutoFollow()
+			if followButton then
+				followButton.Text = "Follow: ON"
+				followButton.BackgroundColor3 = Color3.fromRGB(0, 150, 70)
+			end
+		else
+			StopAutoFollow()
+			if followButton then
+				followButton.Text = "Follow: OFF"
+				followButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+			end
+		end
+	end
+end)
+
+-- =============================================
+-- UI da aba Auto Follow
+-- =============================================
+local FollowTab = Window:Tab({ Title = "Auto Follow", Icon = "move" })
+
+FollowTab:Section({ Title = "Seguir a Bola", TextSize = 16 })
+
+local FollowToggle
+FollowToggle = FollowTab:Toggle({
+	Title = "Auto Follow",
+	Desc = "Segue a bola pra onde ela for (Key: " .. AutoFollowKeyName .. ")",
+	Value = false,
+	Callback = function(v)
+		AutoFollowEnabled = v
+		if v then
+			StartAutoFollow()
+			if followButton then
+				followButton.Text = "Follow: ON"
+				followButton.BackgroundColor3 = Color3.fromRGB(0, 150, 70)
+			end
+		else
+			StopAutoFollow()
+			if followButton then
+				followButton.Text = "Follow: OFF"
+				followButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+			end
+		end
+	end,
+})
+
+FollowTab:Space()
+
+FollowTab:Slider({
+	Title = "Reach (distância)",
+	Desc = "Distância mínima que o personagem para da bola",
+	Value = { Min = 1, Max = 30, Default = 3 },
+	Callback = function(v) AutoFollowReach = v end,
+})
+
+FollowTab:Space()
+
+FollowTab:Slider({
+	Title = "Alcance Máximo",
+	Desc = "Distância máxima pra perseguir a bola",
+	Value = { Min = 50, Max = 500, Default = 200 },
+	Callback = function(v) AutoFollowMax = v end,
+})
+
+FollowTab:Space()
+
+FollowTab:Section({ Title = "Keybind", TextSize = 16 })
+
+local followKeyReady = false
+FollowTab:Input({
+	Title = "Tecla do Auto Follow",
+	Desc = "Tecla pra ativar/desativar",
+	Value = "K",
+	InputIcon = "key",
+	Type = "Input",
+	Placeholder = "Digite...",
+	Callback = function(text)
+		if not followKeyReady then followKeyReady = true; return end
+		local t = text:gsub("%s+", "")
+		if t == "" then return end
+		local key = Enum.KeyCode[t]
+		local ok = pcall(function() return Enum.KeyCode[t] end)
+		if ok and key then
+			AutoFollowKey = key
+			AutoFollowKeyName = t
+			FollowToggle:SetDesc("Segue a bola pra onde ela for (Key: " .. t .. ")")
+			Window:Notify({ Title = "Keybind", Content = "Auto Follow: " .. t, Icon = "check-circle" })
+		else
+			Window:Notify({ Title = "Erro", Content = "Tecla inválida!", Icon = "x-circle" })
+		end
+	end,
+})
+
+FollowTab:Space()
+
+FollowTab:Button({
+	Title = "Mostrar botão mobile",
+	Desc = "Cria um botão flutuante na tela",
+	Icon = "smartphone",
+	Callback = function()
+		createFollowButton()
+		followGui.Enabled = true
+		Window:Notify({ Title = "Follow", Content = "Botão mobile criado!", Icon = "check-circle" })
+	end,
+})
+
+FollowTab:Space()
+
+FollowTab:Button({
+	Title = "Esconder botão mobile",
+	Desc = "Remove o botão flutuante",
+	Icon = "x",
+	Callback = function()
+		if followGui then
+			followGui:Destroy()
+			followGui = nil
+			followButton = nil
+		end
+	end,
+})
+
+-- Atualizar refs no respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+	task.wait(0.5)
+	Character = char
+	Humanoid = char:FindFirstChildOfClass("Humanoid")
+	RootPart = char:FindFirstChild("HumanoidRootPart")
 end)
