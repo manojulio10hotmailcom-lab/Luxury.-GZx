@@ -1066,4 +1066,444 @@ LocalPlayer.CharacterAdded:Connect(function(char)
 	RootPart  = char:FindFirstChild("HumanoidRootPart")
 end)
 
-print("[LuxuryHub] Auto Drive carregado ✔")
+print("[LuxuryHub] Auto Drive carregado ✔")-- =============================================
+-- ABA: BOOM BOX (Músicas + Database)
+-- =============================================
+local BoomTab = Window:Tab({ Title = "Boom Box", Icon = "music" })
+
+local BoomState = {
+	Sound = nil,
+	Database = { Musicas = {}, Ordem = {} },
+	Arquivo = "LuxuryHub_Musicas.json",
+}
+
+-- ============================================
+-- TOCAR MÚSICA
+-- ============================================
+local function TocarMusica(id)
+	pcall(function()
+		if BoomState.Sound then BoomState.Sound:Destroy() end
+		local char = LocalPlayer.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local sound = Instance.new("Sound")
+		sound.SoundId = "rbxassetid://" .. id
+		sound.Volume = 2
+		sound.Parent = hrp or Workspace
+		sound:Play()
+		BoomState.Sound = sound
+	end)
+end
+
+local function PararMusica()
+	if BoomState.Sound then
+		pcall(function()
+			BoomState.Sound:Stop()
+			BoomState.Sound:Destroy()
+		end)
+		BoomState.Sound = nil
+	end
+end
+
+-- ============================================
+-- SERIALIZAÇÃO DA DATABASE
+-- ============================================
+local function SerializarDB()
+	local linhas = {"{"}
+	table.insert(linhas, '  "ordem": [')
+	for i, id in ipairs(BoomState.Database.Ordem) do
+		local virg = i < #BoomState.Database.Ordem and "," or ""
+		table.insert(linhas, '    "' .. id .. '"' .. virg)
+	end
+	table.insert(linhas, "  ],")
+	table.insert(linhas, '  "musicas": {')
+	local ids = {}
+	for id, _ in pairs(BoomState.Database.Musicas) do table.insert(ids, id) end
+	for i, id in ipairs(ids) do
+		local m = BoomState.Database.Musicas[id]
+		local virg = i < #ids and "," or ""
+		local nome = (m.nome or ""):gsub('"', '\\"')
+		local dataAdicao = m.dataAdicao or ""
+		table.insert(linhas, '    "' .. id .. '": {"nome": "' .. nome .. '", "data": "' .. dataAdicao .. '"}' .. virg)
+	end
+	table.insert(linhas, "  }")
+	table.insert(linhas, "}")
+	return table.concat(linhas, "\n")
+end
+
+local function DeserializarDB(texto)
+	local db = { Musicas = {}, Ordem = {} }
+	if not texto or texto == "" then return db end
+	local ordemBloco = texto:match('"ordem"%s*:%s*%[(.-)%]')
+	if ordemBloco then
+		for id in ordemBloco:gmatch('"([^"]+)"') do
+			table.insert(db.Ordem, id)
+		end
+	end
+	local musicasBloco = texto:match('"musicas"%s*:%s*%{(.-)%s*}%s*$')
+	if musicasBloco then
+		for id, corpo in musicasBloco:gmatch('"([^"]+)"%s*:%s*{(.-)}') do
+			local nome = corpo:match('"nome"%s*:%s*"([^"]*)"') or ""
+			local dataAdicao = corpo:match('"data"%s*:%s*"([^"]*)"') or ""
+			db.Musicas[id] = { nome = nome, dataAdicao = dataAdicao }
+		end
+	end
+	return db
+end
+
+local function CarregarDB()
+	pcall(function()
+		if readfile and isfile and isfile(BoomState.Arquivo) then
+			local texto = readfile(BoomState.Arquivo)
+			if texto and texto ~= "" then
+				BoomState.Database = DeserializarDB(texto)
+			end
+		end
+	end)
+end
+
+local function SalvarDB()
+	pcall(function()
+		if writefile then
+			writefile(BoomState.Arquivo, SerializarDB())
+		end
+	end)
+end
+
+CarregarDB()
+
+-- ============================================
+-- CRUD DATABASE
+-- ============================================
+local function DB_Adicionar(id, nome)
+	if not id or id == "" then return false, "ID vazio" end
+	if not nome or nome == "" then return false, "Nome vazio" end
+	id = tostring(id):gsub("%D", "")
+	if id == "" then return false, "ID inválido" end
+	if BoomState.Database.Musicas[id] then
+		return false, "ID já existe (" .. BoomState.Database.Musicas[id].nome .. ")"
+	end
+	BoomState.Database.Musicas[id] = {
+		nome = nome,
+		dataAdicao = os.date("%d/%m/%Y %H:%M"),
+	}
+	table.insert(BoomState.Database.Ordem, id)
+	SalvarDB()
+	return true, "Adicionada"
+end
+
+local function DB_Remover(id)
+	if not BoomState.Database.Musicas[id] then return false, "Não existe" end
+	BoomState.Database.Musicas[id] = nil
+	for i, v in ipairs(BoomState.Database.Ordem) do
+		if v == id then table.remove(BoomState.Database.Ordem, i); break end
+	end
+	SalvarDB()
+	return true, "Removida"
+end
+
+local function DB_EditarNome(id, novoNome)
+	if not BoomState.Database.Musicas[id] then return false, "Não existe" end
+	BoomState.Database.Musicas[id].nome = novoNome
+	SalvarDB()
+	return true, "Editada"
+end
+
+local function DB_Total()
+	return #BoomState.Database.Ordem
+end
+
+local function DB_Listar()
+	local lista = {}
+	for i, id in ipairs(BoomState.Database.Ordem) do
+		local m = BoomState.Database.Musicas[id]
+		if m then
+			table.insert(lista, {indice = i, id = id, nome = m.nome, data = m.dataAdicao})
+		end
+	end
+	return lista
+end
+
+local function DB_Limpar()
+	BoomState.Database = { Musicas = {}, Ordem = {} }
+	SalvarDB()
+end
+
+-- ============================================
+-- UI — MÚSICAS PRONTAS
+-- ============================================
+BoomTab:Section({ Title = "Músicas Prontas", TextSize = 16 })
+
+local musicasProntas = {
+	{Nome = "Meant To Be",       ID = "84321228471359"},
+	{Nome = "Sometimes",         ID = "128715303988843"},
+	{Nome = "Blodlyn Bloodpop",  ID = "96414211708215"},
+}
+
+for _, m in ipairs(musicasProntas) do
+	BoomTab:Button({
+		Title = m.Nome,
+		Icon = "play",
+		Callback = function()
+			TocarMusica(m.ID)
+			Window:Notify({ Title = "Boom Box", Content = "Tocando: " .. m.Nome, Icon = "music", Duration = 2 })
+		end,
+	})
+end
+
+-- ============================================
+-- UI — CUSTOM
+-- ============================================
+BoomTab:Space()
+BoomTab:Section({ Title = "Música Custom", TextSize = 16 })
+
+local customIdInput
+customIdInput = BoomTab:Input({
+	Title = "ID da Música",
+	Placeholder = "rbxassetid apenas números...",
+	InputIcon = "hash",
+	Type = "Input",
+	Callback = function(text)
+		-- salva o valor digitado
+		if text and text ~= "" then
+			customIdInput._value = text
+		end
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Tocar Música",
+	Icon = "play-circle",
+	Callback = function()
+		local id = customIdInput._value
+		if id and id ~= "" then
+			TocarMusica(id)
+			Window:Notify({ Title = "Boom Box", Content = "Tocando ID: " .. id, Icon = "music" })
+		else
+			Window:Notify({ Title = "Erro", Content = "Digite um ID primeiro!", Icon = "x-circle" })
+		end
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Parar Música",
+	Icon = "square",
+	Callback = function()
+		PararMusica()
+		Window:Notify({ Title = "Boom Box", Content = "Música parada", Icon = "square" })
+	end,
+})
+
+-- ============================================
+-- UI — DATABASE
+-- ============================================
+BoomTab:Space()
+BoomTab:Section({ Title = "Database de Músicas", TextSize = 16 })
+
+local novoNomeMusica = ""
+local novoIdMusica = ""
+
+BoomTab:Input({
+	Title = "Nome da Música",
+	Placeholder = "ex: Meant To Be",
+	InputIcon = "type",
+	Type = "Input",
+	Callback = function(t) novoNomeMusica = t or "" end,
+})
+
+BoomTab:Space()
+
+BoomTab:Input({
+	Title = "ID da Música",
+	Placeholder = "ex: 84321228471359",
+	InputIcon = "hash",
+	Type = "Input",
+	Callback = function(t) novoIdMusica = t or "" end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Salvar na Database",
+	Desc = "Adiciona a música ao banco",
+	Icon = "save",
+	Callback = function()
+		local ok, msg = DB_Adicionar(novoIdMusica, novoNomeMusica)
+		if ok then
+			TocarMusica(novoIdMusica)
+			Window:Notify({ Title = "Database", Content = "Adicionada: " .. novoNomeMusica, Icon = "check-circle", Duration = 3 })
+			print("[DB] Adicionada:", novoNomeMusica, "| ID:", novoIdMusica)
+			print("[DB] Total:", DB_Total())
+		else
+			Window:Notify({ Title = "Database", Content = "Erro: " .. msg, Icon = "x-circle", Duration = 3 })
+		end
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Listar Database",
+	Desc = "Mostra todas no console (F9)",
+	Icon = "list",
+	Callback = function()
+		local lista = DB_Listar()
+		print("=== DATABASE DE MÚSICAS ===")
+		print("Total: " .. DB_Total())
+		if #lista == 0 then
+			print("(vazia)")
+		else
+			for _, m in ipairs(lista) do
+				print(string.format("[%d] %s | ID: %s | Adicionada em: %s",
+					m.indice, m.nome, m.id, m.data or "?"))
+			end
+		end
+		Window:Notify({ Title = "Database", Content = DB_Total() .. " músicas", Icon = "list", Duration = 3 })
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Tocar Database Inteira",
+	Desc = "Toca todas em sequência",
+	Icon = "list-music",
+	Callback = function()
+		local lista = DB_Listar()
+		if #lista == 0 then
+			Window:Notify({ Title = "Database", Content = "Vazia", Icon = "x-circle" })
+			return
+		end
+		task.spawn(function()
+			for _, m in ipairs(lista) do
+				TocarMusica(m.id)
+				Window:Notify({ Title = "Tocando", Content = m.nome, Icon = "music", Duration = 2 })
+				local dur = 5
+				pcall(function()
+					if BoomState.Sound then
+						local t = 0
+						while BoomState.Sound.TimeLength == 0 and t < 3 do
+							task.wait(0.1); t = t + 0.1
+						end
+						dur = math.max(BoomState.Sound.TimeLength, 3)
+					end
+				end)
+				task.wait(dur + 0.3)
+			end
+		end)
+	end,
+})
+
+-- ============================================
+-- UI — EDITAR / REMOVER
+-- ============================================
+BoomTab:Space()
+BoomTab:Section({ Title = "Editar / Remover", TextSize = 16 })
+
+local idParaEditar = ""
+local novoNomeEdicao = ""
+
+BoomTab:Input({
+	Title = "ID para Editar",
+	Placeholder = "cole o ID aqui",
+	InputIcon = "edit-3",
+	Type = "Input",
+	Callback = function(t) idParaEditar = (t or ""):gsub("%D", "") end,
+})
+
+BoomTab:Space()
+
+BoomTab:Input({
+	Title = "Novo Nome",
+	Placeholder = "novo nome da música",
+	InputIcon = "type",
+	Type = "Input",
+	Callback = function(t) novoNomeEdicao = t or "" end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Editar Nome",
+	Icon = "edit",
+	Callback = function()
+		if idParaEditar == "" or novoNomeEdicao == "" then
+			Window:Notify({ Title = "Database", Content = "Preencha ID e novo nome", Icon = "x-circle" })
+			return
+		end
+		local ok, msg = DB_EditarNome(idParaEditar, novoNomeEdicao)
+		Window:Notify({ Title = "Database", Content = msg, Icon = "check-circle" })
+		print("[DB]", msg, "| ID:", idParaEditar)
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Remover Música",
+	Icon = "trash",
+	Callback = function()
+		if idParaEditar == "" then
+			Window:Notify({ Title = "Database", Content = "Cole um ID acima", Icon = "x-circle" })
+			return
+		end
+		local ok, msg = DB_Remover(idParaEditar)
+		Window:Notify({ Title = "Database", Content = msg, Icon = "check-circle" })
+		print("[DB]", msg, "| ID:", idParaEditar)
+	end,
+})
+
+-- ============================================
+-- UI — FERRAMENTAS
+-- ============================================
+BoomTab:Space()
+BoomTab:Section({ Title = "Ferramentas", TextSize = 16 })
+
+BoomTab:Button({
+	Title = "Exportar Database",
+	Desc = "Copia o JSON pro clipboard",
+	Icon = "clipboard",
+	Callback = function()
+		local json = SerializarDB()
+		if setclipboard then pcall(setclipboard, json) end
+		print("=== JSON EXPORTADO ===")
+		print(json)
+		Window:Notify({ Title = "Database", Content = "Exportado pro clipboard", Icon = "check-circle" })
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Backup Database",
+	Desc = "Salva um arquivo extra",
+	Icon = "hard-drive",
+	Callback = function()
+		pcall(function()
+			if writefile then
+				local backup = "LuxuryHub_Backup_" .. os.date("%Y%m%d_%H%M%S") .. ".json"
+				writefile(backup, SerializarDB())
+				Window:Notify({ Title = "Database", Content = "Backup: " .. backup, Icon = "check-circle" })
+				print("[DB] Backup:", backup)
+			else
+				Window:Notify({ Title = "Database", Content = "Executor não suporta", Icon = "x-circle" })
+			end
+		end)
+	end,
+})
+
+BoomTab:Space()
+
+BoomTab:Button({
+	Title = "Limpar Toda a Database",
+	Icon = "trash-2",
+	Callback = function()
+		DB_Limpar()
+		Window:Notify({ Title = "Database", Content = "Database limpa", Icon = "trash-2" })
+	end,
+})
+
+print("[LuxuryHub] Boom Box carregado ✔")
